@@ -24,3 +24,4 @@ DB포트=3306
 
 database.py 에서 주소 수정가능
 
+DB는 mysql:8 사용.
