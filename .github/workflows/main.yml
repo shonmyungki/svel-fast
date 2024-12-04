@@ -1,0 +1,89 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+    - '.gitignore'
+    - '.dockerignore'
+
+jobs:
+  Continuous_Integration:  
+    runs-on: ubuntu-latest  
+
+    steps:
+    # 1. 코드 체크아웃
+    - uses: actions/checkout@v4 
+      with:
+        fetch-depth: 1
+
+    # 2. Docker Buildx 설정
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    # 3. Docker 로그인 (Docker Hub)
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}  
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    # 4. 변수 설정
+    - name: Set Variables
+      id: set-var
+      run: |
+        echo "DOCKER_REGISTRY=audrl346" >> $GITHUB_ENV
+        echo "FRONTEND_REPOSITORY=frontend" >> $GITHUB_ENV
+        echo "BACKEND_REPOSITORY=backend" >> $GITHUB_ENV
+        echo "IMAGE_TAG=${{ github.run_number }}" >> $GITHUB_ENV
+        echo "GIT_EMAIL=audrl346@naver.com" >> $GITHUB_ENV
+        echo "GIT_NAME=shonmyungki" >> $GITHUB_ENV
+
+    # 5. Frontend Docker 이미지 빌드
+    - name: Build Frontend Docker image
+      id: build-frontend
+      run: |
+        docker build -f frontend/Dockerfile -t ${{ env.DOCKER_REGISTRY }}/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }} .
+
+    # 6. Backend Docker 이미지 빌드
+    - name: Build Backend Docker image
+      id: build-backend
+      run: |
+        docker build -f backend/Dockerfile -t ${{ env.DOCKER_REGISTRY }}/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }} .
+
+    # 7. Docker Hub에 이미지 푸시
+    - name: Push Frontend Docker image
+      id: push-frontend
+      run: |
+        docker push ${{ env.DOCKER_REGISTRY }}/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+    - name: Push Backend Docker image
+      id: push-backend
+      run: |
+        docker push ${{ env.DOCKER_REGISTRY }}/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+    # 8. 배포 리포지토리 체크아웃
+    - name: Checkout Deployment Repository
+      uses: actions/checkout@v4
+      with:
+        repository: shonmyungki/my_deploy  # 본인에 맞게 수정
+        ref: main
+        token: ${{ secrets.GH_TOKEN }}
+
+    # 9. Kubernetes 배포 파일에서 이미지 태그 업데이트
+    - name: Update Frontend image in deployment.yml
+      run: |
+        sed -i "s@image: ${{ env.DOCKER_REGISTRY }}/${{ env.FRONTEND_REPOSITORY }}:.*@image: ${{ env.DOCKER_REGISTRY }}/${{ env.FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}@g" deployment.yml
+
+    - name: Update Backend image in deployment.yml
+      run: |
+        sed -i "s@image: ${{ env.DOCKER_REGISTRY }}/${{ env.BACKEND_REPOSITORY }}:.*@image: ${{ env.DOCKER_REGISTRY }}/${{ env.BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}@g" deployment.yml
+
+    # 10. Git commit 및 push
+    - name: Commit and Push changes to deployment.yml
+      run: |
+        git config user.email ${{ env.GIT_EMAIL }}
+        git config user.name ${{ env.GIT_NAME }}
+        git add deployment.yml
+        git commit -m "Update image tags for frontend and backend"
+        git push origin main
